@@ -6,6 +6,8 @@ snark when you're winning, emotional support when the build is on fire. You can
 IM her in a retro chat window, ask her for a vibe check from inside Claude Code
 (`/sable`), and she keeps a diary about your day.
 
+![Sable reacting to a fix, a diff, and a failing build](docs/hero.png)
+
 Everything is local. Her brain is a llama.cpp server you run, her voice is
 Pocket TTS on your CPU, and nothing leaves your network.
 
@@ -19,6 +21,12 @@ percent of one CPU core when idle.
 - **Voice** (optional): Pocket TTS on CPU, preset voices or your own designed one.
 - **Chat**: right-click her, **Chat with Sable...**. An AIM-style window; everything
   she says in the bubble lands there too, so you can reply to it.
+- **Eyes** (needs a vision model): right-click her, **What do you make of my
+  screen?**, and she screenshots the screen under your mouse and reacts. Paste
+  (Ctrl+V) or drop images into the chat window to show her things.
+- **Web search** (optional): point `SABLE_SEARCH_URL` at a SearXNG instance and
+  she can look things up and read pages when you ask her something in chat.
+  Each search and page shows up as a gray note in the thread.
 - **Memory**: she picks up lasting facts from chat (your favorite drink, your
   sister's name). View, edit or wipe them in Settings.
 - **Diary**: each evening she writes an entry about your day.
@@ -27,6 +35,19 @@ percent of one CPU core when idle.
   and welcomes you back.
 - **`/sable` skill** for Claude Code: "What's your take on this, Sable?" gets her
   honest read of your last turn or two.
+
+### Moods
+
+Her face follows what's happening: a streak of failures, a long grind, the fix
+landing. Moods ease in and out, and her eyes, ears, pupils and tail all shift.
+
+![Sable's moods: neutral, joy, content, curious, surprise, spooked, sad, unimpressed, angry, asleep](docs/moods.png)
+
+She's drawn in code, so she scales cleanly. Drop your own pose PNGs in
+`art/sable/` to replace her (see [DESIGN.md](DESIGN.md) section 5). To
+re-render these images after changing her look, run
+`& $env:GODOT --path godot --script res://dev/render_moods.gd` (and
+`render_hero.gd`) from the repo root.
 
 ## Requirements
 
@@ -40,7 +61,8 @@ percent of one CPU core when idle.
   ```
 
   With a single-slot server, set `SABLE_LLM_SLOT=-1`. If the server is down she
-  naps and uses canned lines.
+  naps and uses canned lines. For screen peeks and chat images, use a
+  vision-capable model and pass its projector: `--mmproj mmproj-file.gguf`.
 - **Node.js** (Claude Code hook and the `/sable` vibe check).
 - **uv** (installs the Pocket TTS voice). Skip voice with `setup.ps1 -SkipTts`.
 - **Godot 4.7.2** only if you run from source or build the package.
@@ -78,6 +100,7 @@ restart Sable.
 | `SABLE_BRAIN_NAME` | What she calls the box her brain runs on ("the GPU", "the B70", "Dave's workstation") |
 | `SABLE_TTS_URL`, `SABLE_TTS_VOICE` | Voice server and preset voice |
 | `SABLE_PERSONA_DIR` | Folder with her `SOUL.md` (personality) and optional `USER.md` (about you) |
+| `SABLE_SEARCH_URL`, `SABLE_SEARCH_ENGINES` | SearXNG instance for web search in chat (JSON format enabled), optional engine list |
 | `GODOT` | Godot exe, for `run.ps1` and `tools/package.ps1` |
 
 Real environment variables override `.env`, and anything you change in Sable's
@@ -103,7 +126,13 @@ Settings window overrides both.
 - **Settings > Window > Hide Sable from screen sharing** keeps her out of
   screen shares and recordings. Prompts tell her to stay SFW, but she's an LLM:
   use Do Not Disturb (tray menu) in meetings.
-- Chat history, memory, the activity log and the diary live in
+- She only looks at your screen when you ask (the menu item). The screenshot
+  goes to your LLM server and a downscaled copy is kept with the chat history
+  (Clear in the chat window deletes them).
+- Web search is off unless you set `SABLE_SEARCH_URL`. With it on, her search
+  terms go to your SearXNG (and from there to its search engines), and she can
+  open pages from her results or links you send her, nothing else.
+- Chat history, chat images, memory, the activity log and the diary live in
   `%APPDATA%\Godot\app_userdata\Sable Pet\`.
 
 ## Uninstall
@@ -119,3 +148,13 @@ Then delete the folder (and `%APPDATA%\Godot\app_userdata\Sable Pet\` to wipe he
 - [DESIGN.md](DESIGN.md): how it works and why.
 - [REVIEW.md](REVIEW.md): code review notes and known deferred items.
 - [PACKAGING.md](PACKAGING.md): building the standalone package.
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md). Free to use, modify and share for
+personal, hobby, research, educational and other noncommercial purposes. Not
+for commercial use: no selling it, bundling it into a paid product or service,
+or otherwise using it to make money. For anything else, ask.
+
+Third-party pieces keep their own licenses: Godot (MIT), Pocket TTS and its
+voices, and whatever model you load into llama.cpp.

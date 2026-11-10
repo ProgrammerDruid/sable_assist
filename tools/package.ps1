@@ -48,7 +48,7 @@ if (-not (Test-Path (Join-Path $out "Sable.exe"))) { throw "Export failed: no Sa
 
 Write-Host "== Copying support files (same layout as the repo)"
 $files = @(
-    "setup.ps1", ".env.example",
+    "setup.ps1", ".env.example", "LICENSE.md",
     "persona\SOUL.md", "persona\USER.example.md",
     "tools\load_env.ps1",
     "brain\pet_rules.md", "brain\chat_rules.md", "brain\diary_rules.md", "brain\sable_take.mjs",

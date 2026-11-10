@@ -4,7 +4,7 @@ extends Node
 
 signal action(id: int)
 
-enum { SHOW, MUTE, DND, VIBE, SETTINGS, QUIT, CHAT, QUIET, DIARY_NOW, DIARY_OPEN }
+enum { SHOW, MUTE, DND, VIBE, SETTINGS, QUIT, CHAT, QUIET, DIARY_NOW, DIARY_OPEN, PEEK }
 
 var settings: Node  # settings.gd
 var icon: Texture2D
@@ -25,6 +25,7 @@ func _ready() -> void:
 	menu.prefer_native_menu = true
 	menu.add_item("Hide Sable", SHOW)
 	menu.add_item("Chat with Sable...", CHAT)
+	menu.add_item("What do you make of my screen?", PEEK)
 	menu.add_separator()
 	menu.add_check_item("Mute voice", MUTE)
 	menu.add_check_item("Do not disturb", DND)

@@ -43,6 +43,9 @@ const ICON_PATH := "res://icon.png"
 const CHAT_PATH := "user://chat_history.json"
 const CHAT_KEEP := 120  # bubble lines land in the thread too
 const CHAT_CONTEXT := 20
+## Screen peeks and chat pictures: saved as JPEGs, longest side capped.
+const IMAGE_DIR := "user://chat_images"
+const IMAGE_MAX := 1536
 ## Wandering: walking speed (viewport px/s) and how far one stroll goes.
 const WALK_SPEED := 45.0
 const WALK_MIN := 120
@@ -385,6 +388,8 @@ func _on_tray_action(id: int) -> void:
 			settings_window.open()
 		TrayScript.CHAT:
 			_open_chat()
+		TrayScript.PEEK:
+			_peek()
 		TrayScript.QUIET:
 			settings.set_value("quiet_hours", not settings.get_value("quiet_hours"))
 		TrayScript.DIARY_NOW:
@@ -485,6 +490,8 @@ func _ask(situation: String, fallback: String, unprompted: bool = false, ttl: fl
 ##   {"src":"debug","mute":true}             same as the tray's Mute voice
 ##   {"src":"debug","open":"settings"}       open the settings window ("chat" too)
 ##   {"src":"debug","chat":"text"}           send a chat message as the user
+##     (add "image":"C:/path/pic.png" to send a picture with it)
+##   {"src":"debug","peek":true}             look at the screen and comment
 ##   {"src":"debug","wander":true}           take a stroll now
 ##   {"src":"debug","diary":true}            write today's diary now
 ##   {"src":"debug","muse":true}             have a private thought now (if away)
@@ -511,7 +518,12 @@ func _on_event(ev: Dictionary) -> void:
 			_open_chat()
 		if ev.has("chat"):  # type a chat message as the user (testing / scripting)
 			_open_chat()
-			_on_chat_message(str(ev.chat).left(MAX_BUS_TEXT))
+			var pic: Image = null
+			if ev.has("image"):  # local image file to send along (testing)
+				pic = Image.load_from_file(str(ev.image))
+			_on_chat_message(str(ev.chat).left(MAX_BUS_TEXT), pic)
+		if ev.get("peek", false) == true:
+			_peek()
 		if ev.get("wander", false) == true:
 			_wander_timer.stop()
 			_on_wander_timer()
@@ -642,14 +654,28 @@ func _open_chat(reply_to: String = "") -> void:
 	chat_window.open_chat()
 
 
-func _on_chat_message(text: String) -> void:
+## image: a picture pasted or dropped into the chat window, or null.
+func _on_chat_message(text: String, image: Image = null) -> void:
 	_last_chat_message = text
-	_add_chat("user", text)
-	chat_window.add_user(text, _hhmm())
-	activity.log_event("chat", "{user} said to you in chat: " + text.left(160))
+	var image_path := _save_chat_image(image) if image else ""
+	_add_chat("user", text, "", image_path)
+	chat_window.add_user(text, _hhmm(), image_path)
+	activity.log_event("chat", "{user} said to you in chat: " + text.left(160) + (" (with an image)" if image else ""))
 	chat_window.set_typing(true)
 	cat.emote("anticipation", 8.0)
-	brain.chat(_llm_history(), _chat_context(), _on_chat_reply)
+	brain.chat(_llm_history(), _chat_context(), _on_chat_reply, _on_chat_tool)
+
+
+## She's using a tool mid-reply: say so in the status line and the thread, so
+## it's visible what left the machine.
+func _on_chat_tool(tool_name: String, detail: String) -> void:
+	match tool_name:
+		"web_search":
+			chat_window.set_typing(true, "is searching")
+			chat_window.add_note("searched the web for \"%s\"" % detail, _hhmm())
+		"fetch_page":
+			chat_window.set_typing(true, "is reading")
+			chat_window.add_note("read " + detail, _hhmm())
 
 
 ## Recent thread as LLM messages. Bubble lines make runs of assistant
@@ -657,19 +683,137 @@ func _on_chat_message(text: String) -> void:
 ## with a user turn (some chat templates insist on strict user/assistant
 ## alternation). Her opening lines stay, behind a placeholder user turn, so
 ## she remembers what she said before the user typed anything.
+## Only the newest image is actually sent (images are expensive to encode);
+## older ones become a short "[image]" note.
 func _llm_history() -> Array:
+	var recent: Array = _chat_history.slice(-CHAT_CONTEXT)
+	var newest_image := -1
+	for i in recent.size():
+		if not str(recent[i].get("image", "")).is_empty():
+			newest_image = i
 	var history: Array = []
-	for m in _chat_history.slice(-CHAT_CONTEXT):
-		var content := str(m.content)
+	for i in recent.size():
+		var m: Dictionary = recent[i]
+		var text := str(m.content)
 		if m.get("kind", "") == "thought":
-			content = "(thinking to yourself while {user} was away) " + content
+			text = "(thinking to yourself while {user} was away) " + text
+		var parts: Array = [{type = "text", text = text}]
+		var image := str(m.get("image", ""))
+		if not image.is_empty():
+			var jpg := FileAccess.get_file_as_bytes(image) if i == newest_image else PackedByteArray()
+			if jpg.is_empty():
+				parts[0].text += " [image]"
+			else:
+				parts.append({type = "image_url", image_url = {url = "data:image/jpeg;base64," + Marshalls.raw_to_base64(jpg)}})
 		if history.is_empty() and m.role != "user":
-			history.append({role = "user", content = "({user} is working; you speak up on your own now and then in your desktop bubble.)"})
+			history.append({role = "user", content = [{type = "text", text = "({user} is working; you speak up on your own now and then in your desktop bubble.)"}]})
 		if not history.is_empty() and history.back().role == m.role:
-			history.back().content += "\n\n" + content
+			history.back().content.append({type = "text", text = "\n\n"})
+			history.back().content.append_array(parts)
 		else:
-			history.append({role = m.role, content = content})
+			history.append({role = m.role, content = parts})
+	# Text-only turns go back to plain strings (simplest for every chat template).
+	for h in history:
+		var only_text := true
+		var joined := ""
+		for p in h.content:
+			only_text = only_text and p.type == "text"
+			joined += str(p.get("text", ""))
+		if only_text:
+			h.content = joined
 	return history
+
+
+# --- Images: screen peeks and pictures in chat --------------------------------
+
+## Save a chat image (downscaled JPEG) and return its user:// path.
+func _save_chat_image(img: Image) -> String:
+	var copy := img.duplicate() as Image
+	if copy.is_compressed():
+		copy.decompress()
+	copy.convert(Image.FORMAT_RGB8)
+	var longest := maxi(copy.get_width(), copy.get_height())
+	if longest > IMAGE_MAX:
+		var s := float(IMAGE_MAX) / longest
+		copy.resize(int(copy.get_width() * s), int(copy.get_height() * s), Image.INTERPOLATE_LANCZOS)
+	DirAccess.make_dir_recursive_absolute(IMAGE_DIR)
+	var path := IMAGE_DIR.path_join("%d_%d.jpg" % [Time.get_unix_time_from_system(), randi() % 10000])
+	copy.save_jpg(path, 0.82)
+	return path
+
+
+## "What do you make of my screen?": give the user a moment to point the mouse
+## at the screen they mean, grab it (with Sable herself excluded), and ask
+## the vision model for a reaction. Only ever on an explicit request.
+func _peek() -> void:
+	if brain.asleep:
+		_say_or_chat("I can't see anything with my brain offline.")
+		return
+	cat.emote("anticipation", 6.0)
+	if DisplayServer.get_screen_count() > 1:
+		_say_or_chat("Show me. Put the mouse on the screen you mean.")
+		await get_tree().create_timer(3.0).timeout
+	else:
+		await get_tree().create_timer(0.4).timeout  # let the menu close
+	var shot := await _grab_screen()
+	if shot == null:
+		_say_or_chat("I tried to look and saw nothing. Windows wouldn't let me.")
+		return
+	var path := _save_chat_image(shot)
+	_add_chat("user", "(You took a peek at {user}'s screen. Screenshot attached.)", "peek", path)
+	chat_window.add_peek(path, _hhmm())
+	activity.log_event("peek", "You peeked at {user}'s screen when asked")
+	cat.emote("surprise", 4.0)
+	var jpg := FileAccess.get_file_as_bytes(path)
+	brain.look("{user} asked what you make of their screen; the screenshot is attached. React to something specific you can actually see (an app, code, an error, a window title, the tab situation). For this one you may use up to two short sentences, max 40 words.",
+		Marshalls.raw_to_base64(jpg), _on_peek_line)
+
+
+func _on_peek_line(line: String) -> void:
+	_say_or_chat(line if not line.is_empty() else "I looked. I have no words. Or my brain timed out.")
+
+
+## Explicit requests should answer even under Do Not Disturb: then the reply
+## goes to the chat window instead of the bubble.
+func _say_or_chat(line: String) -> void:
+	if settings.get_value("dnd") or not get_window().visible:
+		_add_chat("assistant", line)
+		chat_window.add_sable(line, _hhmm())
+		_open_chat()
+	else:
+		_say(line)
+
+
+## The screen under the mouse, with Sable and her chat window excluded from
+## the capture. Ultra-wide screens are cropped to a 16:9 area centered on the
+## mouse, so text stays readable after downscaling.
+func _grab_screen() -> Image:
+	var flag := DisplayServer.WINDOW_FLAG_EXCLUDE_FROM_CAPTURE
+	var chat_id := chat_window.get_window_id()
+	DisplayServer.window_set_flag(flag, true)
+	if chat_id != DisplayServer.INVALID_WINDOW_ID:
+		DisplayServer.window_set_flag(flag, true, chat_id)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var mouse := DisplayServer.mouse_get_position()
+	var screen := DisplayServer.get_primary_screen()
+	for i in DisplayServer.get_screen_count():
+		if Rect2i(DisplayServer.screen_get_position(i), DisplayServer.screen_get_size(i)).has_point(mouse):
+			screen = i
+	var img := DisplayServer.screen_get_image(screen)
+	_apply_capture_flag()
+	if chat_id != DisplayServer.INVALID_WINDOW_ID:
+		DisplayServer.window_set_flag(flag, false, chat_id)
+	if img == null or img.is_empty():
+		return null
+	var w := img.get_width()
+	var h := img.get_height()
+	if w > h * 2:
+		var crop_w := int(h * 16.0 / 9.0)
+		var local_x := mouse.x - DisplayServer.screen_get_position(screen).x
+		var x := clampi(local_x - crop_w / 2, 0, w - crop_w)
+		img = img.get_region(Rect2i(x, 0, crop_w, h))
+	return img
 
 
 func _on_chat_reply(raw: String) -> void:
@@ -710,13 +854,17 @@ func _chat_context() -> String:
 	return "\n".join(lines)
 
 
-func _add_chat(role: String, content: String, kind: String = "") -> void:
+func _add_chat(role: String, content: String, kind: String = "", image_path: String = "") -> void:
 	var m := {role = role, content = content, t = _hhmm()}
 	if not kind.is_empty():
 		m.kind = kind
+	if not image_path.is_empty():
+		m.image = image_path
 	_chat_history.append(m)
 	while _chat_history.size() > CHAT_KEEP:
-		_chat_history.pop_front()
+		var old: Dictionary = _chat_history.pop_front()
+		if old.has("image"):
+			DirAccess.remove_absolute(str(old.image))
 	var f := FileAccess.open(CHAT_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(_chat_history))
@@ -738,6 +886,9 @@ func _clear_chat() -> void:
 	_chat_history = []
 	if FileAccess.file_exists(CHAT_PATH):
 		DirAccess.remove_absolute(CHAT_PATH)
+	if DirAccess.dir_exists_absolute(IMAGE_DIR):
+		for f in DirAccess.get_files_at(IMAGE_DIR):
+			DirAccess.remove_absolute(IMAGE_DIR.path_join(f))
 	chat_window.load_history([])
 
 

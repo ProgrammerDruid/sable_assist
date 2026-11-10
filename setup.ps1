@@ -112,6 +112,20 @@ if ($Customize -or -not (Test-Path $envFile)) {
     $persona = if ($cfg["SABLE_PERSONA_DIR"]) { $cfg["SABLE_PERSONA_DIR"] } else { "(bundled persona folder)" }
     $persona = Ask "Persona folder with SOUL.md (or a pi-persona agent dir)" $persona
     $cfg["SABLE_PERSONA_DIR"] = if ($persona -eq "(bundled persona folder)") { "" } else { $persona -replace '\\', '/' }
+    $search = if ($cfg["SABLE_SEARCH_URL"]) { $cfg["SABLE_SEARCH_URL"] } else { "none" }
+    $search = Ask "SearXNG URL so she can search the web in chat (none = no web access)" $search
+    $cfg["SABLE_SEARCH_URL"] = if ($search -eq "none") { "" } else { $search.TrimEnd("/") }
+    if ($cfg["SABLE_SEARCH_URL"]) {
+        try {
+            $r = Invoke-RestMethod "$($cfg["SABLE_SEARCH_URL"])/search?q=test&format=json" -TimeoutSec 10
+            Write-Host "  JSON API works ($(@($r.results).Count) results)" -ForegroundColor Green
+            if (@($r.results).Count -eq 0) {
+                Write-Host "  0 results: its default engines may be rate-limited; set SABLE_SEARCH_ENGINES in .env (e.g. bing)" -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "  no JSON answer: enable it in SearXNG settings.yml (search.formats: [html, json])" -ForegroundColor Yellow
+        }
+    }
     Write-EnvFile $cfg
     Write-Host "Saved $envFile"
 

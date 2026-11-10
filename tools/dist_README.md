@@ -39,3 +39,8 @@ and anything changed in Sable's Settings window overrides both. Her persona is
 ## Removing
 
 `.\setup.ps1 -Uninstall`, then delete this folder.
+
+## License
+
+PolyForm Noncommercial 1.0.0 (see `LICENSE.md`): free for noncommercial use,
+modification and sharing; no commercial use.

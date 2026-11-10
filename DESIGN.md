@@ -470,6 +470,23 @@ in REVIEW.md.
    - **Reply to a bubble**: double-click it to open the chat with that line.
    - **Tray menu**: added Chat, Quiet hours, Write diary, Open diary folder.
    - Debug packets for scripting: `chat`, `open: "chat"`, `wander`, `diary`.
+9. **Eyes** (done; needs a vision model, i.e. llama-server with `--mmproj`):
+   - **Screen peek**: menu "What do you make of my screen?". With several
+     screens she first asks the user to point the mouse at the one they mean
+     (3 s), then grabs that screen with `DisplayServer.screen_get_image()`
+     while her own window and the chat window are flagged
+     exclude-from-capture. Screens wider than 2:1 are cropped to a 16:9 area
+     around the mouse so text survives the downscale. The JPEG (longest side
+     1536) goes to `brain.look()`, which checks `/props` `modalities.vision`
+     first and answers in character if the model can't see. Only ever on an
+     explicit request; under DND the answer goes to the chat window.
+   - **Chat images**: Ctrl+V with an image on the clipboard, or drop an image
+     file on the chat window, attaches it (thumbnail strip with Remove).
+   - Images are saved as JPEGs in `user://chat_images`, shown as thumbnails in
+     the thread, pruned with the history and wiped by Clear. Only the newest
+     image in the context window is sent to the LLM (as an OpenAI-style
+     `image_url` data URL); older ones become "[image]" so prompts stay small.
+   - Debug packets: `peek`, and `chat` with `"image": "<path>"`.
 
 ---
 
