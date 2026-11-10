@@ -1,0 +1,26 @@
+# Build output
+dist/
+
+# Godot editor/import cache
+godot/.godot/
+
+# Local Python venv for Pocket TTS (setup.ps1 creates it)
+tts/.venv/
+tts/serve.log
+# Generated voice previews and user voices (large, regenerable, personal)
+tts/samples/
+tts/voices/
+tts/candidates/
+
+# Personal config
+.env
+claude-hooks/pet-hook.config.json
+persona/USER.md
+
+# User art (ComfyUI output etc.)
+godot/art/sable/*.png
+
+*.log
+*.bak
+*.bak-sable
+*.tmp
